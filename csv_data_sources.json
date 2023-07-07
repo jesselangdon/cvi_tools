@@ -1,0 +1,73 @@
+[
+  {
+    "Adaptive Capacity Index":
+      [
+        {
+          "BG_2020ACS": [
+            "% People of Color",
+            "%Ratio of Income to Poverty Leve < 2.0",
+            "% Education Level < High School",
+            "% Limited English speaking Households",
+            "% Households with person living alone",
+            "% Households paying more than 30% of income to housing cost",
+            "Percent Unemployed in Civilian labor force"
+          ]
+        },
+        {
+          "LEHD_2019": [
+            "Job Density Square Mile",
+            "Outdoor Job Density Square Mile"
+          ]
+        },
+        {
+          "BG_ImperviousAndCanopy": [
+            "Percent Impervious",
+            "Percent Canopy Cover"
+          ]
+        },
+        {
+          "BG_2020_CDC_Tracts": [
+            "Lack of health insurance crude prevalence (%)"
+          ]
+        }
+      ]
+  },
+  {
+    "Sensitivity Index":
+    [
+      {
+        "BG_2020ACS": [
+          "% Under Age 5",
+          "% Over Age 64"
+        ]
+      },
+      {
+        "BG_2020_CDC_Tracts": [
+          "Diabetes crude prevalence (%)",
+          "Current asthma crude prevalence (%)",
+          "COPD crude prevalence (%)",
+          "Coronary heart disease crude prevalence (%)",
+          "Frequent physical health distress crude prevalence (%)",
+          "Frequent mental health distress crude prevalence (%)"
+        ]
+      }
+    ]
+  },
+  {
+    "Exposure Index":[
+      {
+        "BG_CIG_Exposure": [
+          "LikelihoodOfFire",
+          "ExtremePrecipitationChange",
+          "Increase90DegreeDays",
+          "FloodPlain_500Yr_Parcels",
+          "SeaLevelRise_10Ft_Parcels",
+          "SnowpackPercentReduction",
+          "UrbanHeatIslandAverage",
+          "EJ Index: Ozone",
+          "EJ Index: Particulate Matter 2.5"
+        ]
+      }
+    ]
+  }
+]
