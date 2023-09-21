@@ -4,13 +4,14 @@
 # Author:           Jesse Langdon
 # Last Update:      6/1/2023
 # Description:      ArcGIS Pro Python toolbox with tools that facilitate updating data in the CVI Tool.
-# Dependencies:     Python 3.x, arcpy, pandas
+# Dependencies:     Python 3.x, arcpy, pandas, xlwings (note: the xlwings package may need to be installed manually)
 # ----------------------------------------------------------------------------------------------------------------------
 # -*- coding: utf-8 -*-
 
 # import modules
 import os
 import sys
+
 import arcpy
 
 # get current working directory of the toolbox
@@ -29,9 +30,9 @@ class Toolbox(object):
 class UpdateCVIExcel(object):
     def __init__(self):
         """Define the tool (tool name is the name of the class)."""
-        self.label = "1 - Update Indicator data in the CVI Excel document"
+        self.label = "1 - Update indicator in CVI Excel spreadsheet"
         self.description = "Updates the SnohomishCountyCVI_Tool.xlsx Excel document with new indicator values. This " \
-                           "tool only allows the user to overwrite an existing column."
+                           "tool only allows the user to overwrite an existing indicator column."
         self.canRunInBackground = False
 
     def getParameterInfo(self):
@@ -100,7 +101,7 @@ class UpdateCVIExcel(object):
         data_src_dict = json_to_dict(os.path.join(sys.path[0], "csv_data_sources.json"))
 
         if params[2].altered:
-            index = params[2].value
+            index = params[2].valueAsText
             data_src_list = get_data_src_by_index(data_src_dict, index)
 
             # populate data source input with list of data sources from config file, based on selected index
@@ -113,7 +114,7 @@ class UpdateCVIExcel(object):
                 params[3].value = None
 
         if params[3].altered:
-            data_src = params[3].value
+            data_src = params[3].valueAsText
             indicator_list = get_indicators_by_data_src(data_src_dict, index, data_src)
             params[4].enabled = True
             params[4].filter.type = "ValueList"
@@ -133,13 +134,13 @@ class UpdateCVIExcel(object):
         """The source code of the tool."""
 
         # Assign local variables
-        spreadsheet_filename = params[0]
-        csv_filename = params[1]
-        index_name = params[2]
-        data_source = params[3]
-        indicator_name = params[4]
+        spreadsheet_filename = params[0].valueAsText
+        csv_filename = params[1].valueAsText
+        data_source = params[3].valueAsText
+        indicator_name = params[4].valueAsText
+        unique_id = "Block Group ID"
 
-        update_CVI_excel(spreadsheet_filename, csv_filename, index_name, data_source, indicator_name)
+        update_CVI_excel(spreadsheet_filename, csv_filename, data_source, indicator_name, unique_id)
 
         return
 
@@ -231,35 +232,56 @@ class UpdateAGOLFeatureLayers(object):
 
 ### Helper functions
 
-def update_CVI_excel(spreadsheet, csv, index, data_src, indicator):
+def update_CVI_excel(spreadsheet, csv, data_src, indicator, unique_id):
 
     import pandas as pd
+    import xlwings as xw
+    import shutil
+    from datetime import date
     import logging
 
     start_logging()
+    logging.info("Running UpdateCVIExcel tool...")
 
-    # Convert SnohomishCountyCVI_Tool.xlsx sheet to pandas data frame(s)
-    excel_df = pd.read_excel(spreadsheet, sheet_name=data_src)
+    try:
+        # get today's date
+        today = date.today().strftime("%Y%m%d")
 
-    # Convert CSV file with summarized indicator data into pandas data frame
-    csv_df = pd.read_csv(csv)
+        # create copy of original Excel spreadsheet with today's date as suffix
+        spreadsheet_copy = spreadsheet.replace('.xlsx', '_{0}.xlsx'.format(today))
+        shutil.copy(spreadsheet, spreadsheet_copy)
 
-    # Merge data frames based on common column
-    common_column = "Block Group ID"
-    merged_df = pd.merge(excel_df, csv_df, on=common_column)
+        # load data from original Excel and CSV files into pandas data frames
+        df_excel = pd.read_excel(spreadsheet_copy, sheet_name=data_src)
+        assert df_excel[unique_id].duplicated().sum() == 0, "Duplicates found in Excel {} column".format(unique_id)
+        df_excel_cols = list(df_excel.columns)
+        df_csv = pd.read_csv(csv)
+        assert df_csv[unique_id].duplicated().sum() == 0, "Duplicates found in CSV {} column".format(unique_id)
 
-    # Replace indicator column in spreadsheet data frame with new updated data column
-    merged_df[indicator] = merged_df[indicator].fillna(merged_df[indicator + "_y"])
-    merged_df = merged_df.drop([indicator + "_y"], axis=1)
+        # perform the update based on the unique ID column
+        df_excel.set_index(unique_id, inplace=True)
+        df_csv.set_index(unique_id, inplace=True)
+        df_excel.update(df_csv, join="left", overwrite=True)
+        df_excel.reset_index(inplace=True)  # Resetting the index for writing back to Excel
 
-    # Write update spreadsheet data frame to Excel spreadsheet (replace existing sheet?)
-    with pd.ExcelWriter(spreadsheet, engine='openpyxl', mode='a') as writer:
-        merged_df.to_excel(writer, sheet_name=data_src, index=False)
-        writer.save()
+        # write back to Excel using xlwings
+        app = xw.App(visible=False)
+        wb = app.books.open(spreadsheet_copy)
+        target_sheet = wb.sheets[data_src]
+        df_excel = df_excel[df_excel_cols]
+        target_sheet.range('A2').options(index=False, header=False).value = df_excel
+        wb.save()
+        wb.close()
+        
+        logging.info(f"The {indicator} indicator was successfully updated.")
+        app.quit() # quit the Excel application running in backgroun
 
-    success_msg = "The {0} indicator was successfully updated.".format(indicator)
-    logging.info(success_msg)
-    arcpy.AddMessage(success_msg)
+    except Exception as e:
+        import traceback
+        traceback_str = traceback.format_exc()
+        error_msg = "An exception occurred: \n{0}".format(traceback_str)
+        logging.info(error_msg)
+        arcpy.AddError(error_msg)
 
     return
 
@@ -310,8 +332,8 @@ def start_logging():
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
 
     # Configure the logging settings
-    log_filename = f"CVITools_{timestamp}.log"
-    logging.basicConfig(filename='log_filename', level=logging.INFO,
+    log_filename = "CVITools_{0}.log".format(timestamp)
+    logging.basicConfig(filename=log_filename, filemode='w', level=logging.INFO,
                         format='%(asctime)s - %(levelname)s - %(message)s')
     return
 
@@ -352,11 +374,11 @@ def update_AGOL_feature_layers():
 
 
 # TESTING
-spreadsheet_file = r"\\snoco\gis\plng\carto\CVI\SnohomishCounty_CVI\SnohomishCountyCVI_Tool.xlsx"
-csv_file = r"\\snoco\gis\plng\carto\CVI\SnohomishCounty_CVI\test.csv"
+spreadsheet_file = r"C:\Users\SCDJ2L\dev\CVI\TEST\SnohomishCountyCVI_Tool.xlsx"
+csv_file = r"C:\Users\SCDJ2L\dev\CVI\TEST\slr_parcels_20230920.csv"
 index_name = "Exposure Index"
 data_source = "BG_CIG_Exposure"
-indicator_name = "Increase90DegreeDays"
+indicator_name = "SeaLevelRise_2Ft_Parcels"
+unique_id = "Block Group ID"
 
-update_CVI_excel(spreadsheet_file, csv_file, index_name, data_source, indicator_name)
-print("Testing complete")
+update_CVI_excel(spreadsheet_file, csv_file, data_source, indicator_name, unique_id)
