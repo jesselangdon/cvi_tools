@@ -11,8 +11,14 @@
 # import modules
 import os
 import sys
-
+import json
+import pandas as pd
+import xlwings as xw
+import shutil
+import datetime
+import logging
 import arcpy
+import traceback
 
 # get current working directory of the toolbox
 current_dir = arcpy.env.workspace
@@ -233,83 +239,41 @@ class UpdateAGOLFeatureLayers(object):
 ### Helper functions
 
 def update_CVI_excel(spreadsheet, csv, data_src, indicator, unique_id):
-
-    import pandas as pd
-    import xlwings as xw
-    import shutil
-    from datetime import date
-    import logging
-
     start_logging()
     logging.info("Running UpdateCVIExcel tool...")
 
     try:
-        # get today's date
-        today = date.today().strftime("%Y%m%d")
-
-        # create copy of original Excel spreadsheet with today's date as suffix
-        spreadsheet_copy = spreadsheet.replace('.xlsx', '_{0}.xlsx'.format(today))
+        today = datetime.date.today().strftime("%Y%m%d")
+        spreadsheet_copy = spreadsheet.replace('.xlsx', f'_{today}.xlsx')
         shutil.copy(spreadsheet, spreadsheet_copy)
 
-        # load data from original Excel and CSV files into pandas data frames
-        df_excel = pd.read_excel(spreadsheet_copy, sheet_name=data_src)
-        assert df_excel[unique_id].duplicated().sum() == 0, "Duplicates found in Excel {} column".format(unique_id)
+        df_excel, df_csv = read_data_files(spreadsheet_copy, csv, data_src, unique_id)
         df_excel_cols = list(df_excel.columns)
-        df_csv = pd.read_csv(csv)
-        assert df_csv[unique_id].duplicated().sum() == 0, "Duplicates found in CSV {} column".format(unique_id)
+        df_updated = update_dataframe(df_excel, df_csv, unique_id)
 
-        # perform the update based on the unique ID column
-        df_excel.set_index(unique_id, inplace=True)
-        df_csv.set_index(unique_id, inplace=True)
-        df_excel.update(df_csv, join="left", overwrite=True)
-        df_excel.reset_index(inplace=True)  # Resetting the index for writing back to Excel
+        df_updated = df_updated[df_excel_cols]
+        write_to_excel(df_updated, spreadsheet_copy, data_src)
 
-        # write back to Excel using xlwings
-        app = xw.App(visible=False)
-        wb = app.books.open(spreadsheet_copy)
-        target_sheet = wb.sheets[data_src]
-        df_excel = df_excel[df_excel_cols]
-        target_sheet.range('A2').options(index=False, header=False).value = df_excel
-        wb.save()
-        wb.close()
-        
         logging.info(f"The {indicator} indicator was successfully updated.")
-        app.quit() # quit the Excel application running in backgroun
 
     except Exception as e:
-        import traceback
         traceback_str = traceback.format_exc()
-        error_msg = "An exception occurred: \n{0}".format(traceback_str)
-        logging.info(error_msg)
+        error_msg = f"An exception occurred: \n{traceback_str}"
+        logging.error(error_msg)
         arcpy.AddError(error_msg)
 
     return
 
 
 def json_to_dict(json_filepath):
-    import json
-
-    # parse JSON file as dictionary
     with open(json_filepath) as json_file:
         data_dict = json.load(json_file)
     arcpy.AddMessage("Data dictionary imported...")
-
     return data_dict
 
 
 def get_data_src_by_index(dict_obj, index):
-
-    # lists that will hold keys and values from the data dictionary
-    first_level_key_list = []
-    second_level_key_list = []
-
-    for item in dict_obj:
-        for key in item.keys():
-            if key == index:
-                first_level_key_list.append(key)
-                for subitem in item[key]:
-                    for subkey in subitem.keys():
-                        second_level_key_list.append(subkey)
+    second_level_key_list = [subitem[subkey] for item in dict_obj for key in item.keys() if key == index for subitem in item[key] for subkey in subitem.keys()]
     return second_level_key_list
 
 
@@ -320,22 +284,49 @@ def get_indicators_by_data_src(dict_obj, index, data_src):
                 for subitem in item[key]:
                     for subkey in subitem.keys():
                         if subkey == data_src:
-                            indicator_list = subitem[subkey]
-    return indicator_list
+                            return subitem[subkey]
 
 
 def start_logging():
-    import logging
-    import datetime
-
-    # Create a datetime stamp
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-
-    # Configure the logging settings
-    log_filename = "CVITools_{0}.log".format(timestamp)
-    logging.basicConfig(filename=log_filename, filemode='w', level=logging.INFO,
-                        format='%(asctime)s - %(levelname)s - %(message)s')
+    log_filename = f"CVITools_{timestamp}.log"
+    logging.basicConfig(
+        filename=log_filename, filemode='w', level=logging.INFO,
+        format='%(asctime)s - %(levelname)s - %(message)s'
+    )
     return
+
+
+def read_data_files(excel_path, csv_path, sheet_name, unique_id):
+    df_excel = pd.read_excel(excel_path, sheet_name=sheet_name)
+    if df_excel[unique_id].duplicated().sum() != 0:
+        raise ValueError(f"Duplicates found in Excel {unique_id} column")
+
+    df_csv = pd.read_csv(csv_path)
+    if df_csv[unique_id].duplicated().sum() != 0:
+        raise ValueError(f"Duplicates found in CSV {unique_id} column")
+
+    return df_excel, df_csv
+
+
+def update_dataframe(df_excel, df_csv, unique_id):
+    df_excel.set_index(unique_id, inplace=True)
+    df_csv.set_index(unique_id, inplace=True)
+    df_excel.update(df_csv, join="left", overwrite=True)
+    df_excel.reset_index(inplace=True)
+    return df_excel
+
+
+def write_to_excel(df, excel_path, sheet_name):
+    app = xw.App(visible=False)
+    wb = app.books.open(excel_path)
+    target_sheet = wb.sheets[sheet_name]
+    target_sheet.range('A2').options(index=False, header=False).value = df
+    wb.save()
+    wb.close()
+    app.quit()
+    return
+
 
 def update_combined_CVI_fc():
 
