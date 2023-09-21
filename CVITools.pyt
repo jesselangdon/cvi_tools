@@ -2,7 +2,7 @@
 # File Name:        CVITools.pyt
 # Version:          0.1
 # Author:           Jesse Langdon
-# Last Update:      6/1/2023
+# Last Update:      9/21/2023
 # Description:      ArcGIS Pro Python toolbox with tools that facilitate updating data in the CVI Tool.
 # Dependencies:     Python 3.x, arcpy, pandas, xlwings (note: the xlwings package may need to be installed manually)
 # ----------------------------------------------------------------------------------------------------------------------
@@ -273,7 +273,16 @@ def json_to_dict(json_filepath):
 
 
 def get_data_src_by_index(dict_obj, index):
-    second_level_key_list = [subitem[subkey] for item in dict_obj for key in item.keys() if key == index for subitem in item[key] for subkey in subitem.keys()]
+    first_level_key_list = []
+    second_level_key_list = []
+
+    for item in dict_obj:
+        for key in item.keys():
+            if key == index:
+                first_level_key_list.append(key)
+                for subitem in item[key]:
+                    for subkey in subitem.keys():
+                        second_level_key_list.append(subkey)
     return second_level_key_list
 
 
@@ -288,12 +297,13 @@ def get_indicators_by_data_src(dict_obj, index, data_src):
 
 
 def start_logging():
-    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    log_filename = f"CVITools_{timestamp}.log"
+    tool_dir = os.path.dirname(os.path.abspath(__file__))
+    log_filename = os.path.join(tool_dir, "CVTTools.log")
     logging.basicConfig(
-        filename=log_filename, filemode='w', level=logging.INFO,
+        filename=log_filename, filemode='a', level=logging.INFO,
         format='%(asctime)s - %(levelname)s - %(message)s'
     )
+    logging.info("---------------- New Execution ----------------")
     return
 
 
@@ -365,11 +375,11 @@ def update_AGOL_feature_layers():
 
 
 # TESTING
-spreadsheet_file = r"C:\Users\SCDJ2L\dev\CVI\TEST\SnohomishCountyCVI_Tool.xlsx"
-csv_file = r"C:\Users\SCDJ2L\dev\CVI\TEST\slr_parcels_20230920.csv"
-index_name = "Exposure Index"
-data_source = "BG_CIG_Exposure"
-indicator_name = "SeaLevelRise_2Ft_Parcels"
-unique_id = "Block Group ID"
-
-update_CVI_excel(spreadsheet_file, csv_file, data_source, indicator_name, unique_id)
+# spreadsheet_file = r"C:\Users\SCDJ2L\dev\CVI\TEST\SnohomishCountyCVI_Tool.xlsx"
+# csv_file = r"C:\Users\SCDJ2L\dev\CVI\TEST\slr_parcels_20230920.csv"
+# index_name = "Exposure Index"
+# data_source = "BG_CIG_Exposure"
+# indicator_name = "SeaLevelRise_2Ft_Parcels"
+# unique_id = "Block Group ID"
+#
+# update_CVI_excel(spreadsheet_file, csv_file, data_source, indicator_name, unique_id)
