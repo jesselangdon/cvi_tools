@@ -2,7 +2,7 @@
 # File Name:        CVITools.pyt
 # Version:          0.1
 # Author:           Jesse Langdon
-# Last Update:      12/28/2023
+# Last Update:      1/3/2024
 # Description:      ArcGIS Pro Python toolbox with tools that facilitate updating data in the CVI Tool.
 # Dependencies:     Python 3.x, arcpy, pandas, xlwings (note: the xlwings package may need to be installed manually)
 # ----------------------------------------------------------------------------------------------------------------------
