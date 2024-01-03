@@ -2,7 +2,7 @@
 # File Name:        CVITools.pyt
 # Version:          0.1
 # Author:           Jesse Langdon
-# Last Update:      9/21/2023
+# Last Update:      12/28/2023
 # Description:      ArcGIS Pro Python toolbox with tools that facilitate updating data in the CVI Tool.
 # Dependencies:     Python 3.x, arcpy, pandas, xlwings (note: the xlwings package may need to be installed manually)
 # ----------------------------------------------------------------------------------------------------------------------
@@ -13,7 +13,7 @@ import os
 import sys
 import json
 import pandas as pd
-import xlwings as xw
+# import xlwings as xw
 import shutil
 import datetime
 import logging
@@ -145,6 +145,7 @@ class UpdateCVI(object):
 
     def execute(self, params, messages):
         """The source code of the tool."""
+        start_logging()
 
         # Assign local variables
         spreadsheet_filename = params[0].valueAsText
@@ -155,7 +156,21 @@ class UpdateCVI(object):
         indicator_name = params[5].valueAsText
         unique_id = "Block Group ID"
 
-        update_CVI_excel(spreadsheet_filename, csv_filename, data_source, indicator_name, unique_id)
+        # Update the data source sheet in the CSV spreadsheet for the selected indicator
+        update_data_source_sheet(
+            spreadsheet=spreadsheet_filename,
+            csv=csv_filename,
+            data_src=data_source,
+            indicator=indicator_name,
+            uid=unique_id
+        )
+
+         # Update the combined vulnerability feature class
+        update_cvi_fc(
+            fc=fc_name,
+            spreadsheet=spreadsheet_filename,
+            unique_id=unique_id
+        )
 
         return
 
@@ -207,57 +222,28 @@ class UpdateAGOLFeatureLayers(object):
 
 ### Helper functions
 
-# TODO This helper function will be replaced with the update_cvi function.
-def update_CVI_excel(spreadsheet, csv, data_src, indicator, unique_id):
-    start_logging()
-    logging.info("Running UpdateCVIExcel tool...")
-
-    try:
-        today = datetime.date.today().strftime("%Y%m%d")
-        spreadsheet_copy = spreadsheet.replace('.xlsx', f'_{today}.xlsx')
-        shutil.copy(spreadsheet, spreadsheet_copy)
-
-        df_excel, df_csv = convert_to_dataframe(spreadsheet_copy, csv, data_src, unique_id)
-        df_excel_cols = list(df_excel.columns)
-        df_updated = update_dataframe(df_excel, df_csv, unique_id)
-
-        df_updated = df_updated[df_excel_cols]
-        write_to_excel(df_updated, spreadsheet_copy, data_src)
-
-        logging.info(f"The {indicator} indicator was successfully updated.")
-
-    except Exception as e:
-        traceback_str = traceback.format_exc()
-        error_msg = f"An exception occurred: \n{traceback_str}"
-        logging.error(error_msg)
-        arcpy.AddError(error_msg)
-
-    return
-
-
-# TODO this function is replacing the update_CVI_excel function
-def update_CVI(speadsheet, fc, csv, data_src, indicator, uid):
-    start_logging()
-    logging.info("Running the Update CVI tool...")
+def update_data_source_sheet(spreadsheet, csv, data_src, indicator, uid):
+    logging.info("Updating the data source sheet with new indicator...")
     try:
         # make a copy of the CVI spreadsheet to update, appending today's date to the new file name
         spreadsheet_to_update = make_spreadsheet_copy(spreadsheet)
 
-        # convert data files (spreadsheet, csv files) to pandas data frames
-        df_cvi_index = pd.read_excel(spreadsheet_to_update, sheet_name="CVI_Index")
-        df_indicator = pd.read_excel(spreadsheet_to_update, sheet_name=indicator)
+        # update the data source sheet (e.g. BG_CIG_Exposure) with the values from the new indicator data
         df_datasrc = pd.read_excel(spreadsheet_to_update, sheet_name=data_src)
-        df_csv = pd.read_excel(csv)
+        df_csv = pd.read_csv(csv)
 
         # check for duplicate values in the unique ID column for each data frame
-        df_list = [df_cvi_index, df_indicator, df_datasrc, df_csv]
+        df_list = [df_datasrc, df_csv]
         for df in df_list:
             check_df_column_for_dupes(df, uid)
 
-        # update the indicator columns of the target dataframes based on the new values in the CSV indicator column
-
-
-
+        df_datasrc= update_df_column(df_target=df_datasrc,
+                                        column_target=indicator,
+                                        df_source=df_csv,
+                                        column_source=indicator,
+                                        join_column=uid)
+        write_to_excel(df_datasrc, spreadsheet_to_update, data_src)
+        return spreadsheet_to_update
 
     except Exception as e:
         traceback_str = traceback.format_exc()
@@ -265,7 +251,40 @@ def update_CVI(speadsheet, fc, csv, data_src, indicator, uid):
         logging.error(error_msg)
         arcpy.AddError(error_msg)
 
-    return
+
+def update_cvi_fc(fc, spreadsheet, unique_id):
+    logging.info("Updating the CVI feature class...")
+
+    # Determine file geodatabase path from the feature class path
+    workspace = os.path.dirname(fc)
+    arcpy.env.workspace = workspace
+
+    try:
+        arcpy.MakeFeatureLayer_management(in_features="SnohomishCounty_BG_Areas", out_layer="bg_areas_lyr")
+        arcpy.MakeFeatureLayer_management(in_features=fc, out_layer="fc_lyr")
+        data_src_dict = json_to_dict(os.path.join(sys.path[0], "csv_data_sources.json"))
+        subindex_list = get_index(data_src_dict)
+        for subindex in subindex_list:
+            subindex_table = f"memory\{subindex}_table"
+            arcpy.ExcelToTable_conversion(Input_Excel_File=spreadsheet,
+                                          Output_Table= subindex_table,
+                                          Sheet=subindex.replace("_", ""))
+            arcpy.AddJoin_management(in_features="bg_areas_lyr", in_field=unique_id, join_table=subindex_table, join_field=unique_id)
+
+        if not arcpy.TestSchemaLock(fc):
+            arcpy.AddError(f"Unable to proceed - the {fc} is locked!")
+        else:
+            arcpy.Delete_management(in_data="fc_lyr")
+
+        arcpy.FeatureClassToFeatureClass_conversion(in_features="bg_areas_lyr", out_path=workspace, out_name=os.path.basename(fc))
+        arcpy.AddMessage("The CV feature class has been updated sucessfully!")
+        return
+
+    except Exception as e:
+        traceback_str = traceback.format_exc()
+        error_msg = f"An exception occurred \n{traceback_str}"
+        logging.error(error_msg)
+        arcpy.AddError(error_msg)
 
 
 def make_spreadsheet_copy(spreadsheet):
@@ -286,6 +305,14 @@ def json_to_dict(json_filepath):
         data_dict = json.load(json_file)
     arcpy.AddMessage("Data dictionary imported...")
     return data_dict
+
+
+def get_index(dict_obj):
+    first_level_key_list = []
+    for item in dict_obj:
+        for key in item.keys():
+            first_level_key_list.append(key)
+    return first_level_key_list
 
 
 def get_data_src_by_index(dict_obj, index):
@@ -323,24 +350,10 @@ def start_logging():
     return
 
 
-# def convert_to_dataframe(excel_path, csv_path, sheet_name, unique_id):
-#     df_excel = pd.read_excel(excel_path, sheet_name=sheet_name)
-#     if df_excel[unique_id].duplicated().sum() != 0:
-#         raise ValueError(f"Duplicates found in Excel {unique_id} column")
-#
-#     df_csv = pd.read_csv(csv_path)
-#     if df_csv[unique_id].duplicated().sum() != 0:
-#         raise ValueError(f"Duplicates found in CSV {unique_id} column")
-#
-#     return df_excel, df_csv
-
-
-def update_dataframe(df_excel, df_csv, unique_id):
-    df_excel.set_index(unique_id, inplace=True)
-    df_csv.set_index(unique_id, inplace=True)
-    df_excel.update(df_csv, join="left", overwrite=True)
-    df_excel.reset_index(inplace=True)
-    return df_excel
+def update_df_column(df_target, column_target, df_source, column_source, join_column):
+    df_merged = pd.merge(df_target[join_column], df_source, on=join_column, how='left')
+    df_target[column_target] = df_merged[column_source]
+    return df_target
 
 
 def write_to_excel(df, excel_path, sheet_name):
@@ -354,35 +367,18 @@ def write_to_excel(df, excel_path, sheet_name):
     return
 
 
-def update_combined_CVI_fc(input_fc, spreadsheet, unique_id):
-    # TODO This function will be removed. Functionality to update the CVI feature class will be incorporated into a
-    # TODO single tool in the toolbox, since all of the user inputs will already be available.
-
-    # Determine file geodatabase path from the feature class path
-    workspace = os.path.dirname(input_fc)
-    arcpy.env.workspace = workspace
-
-    start_logging()
-    logging.info("Running UpdateCombinedCVI tool...")
-
-    # Convert Combined CVI feature class into data frame
-    df_cvi = pd.read_excel(io=spreadsheet, sheet_name="CVI_Index", index_col=unique_id)
-
-    # Get list of column headers from CVI_Index spreadsheet
-    fields_to_delete = df_cvi.columns.values.tolist()
-    fields_to_delete = fields_to_delete.remove(unique_id)
-
-    # Remove fields from Climate Vulnerability feature class that will be replaced
-    delete_fields_from_fc(input_fc, fields_to_delete)
-
-    # Convert the combined CVI data frame into a temporary table in the CVI file geodatabase
-    temp_table = "excel_df_temp"
-    arcpy.TableToTable_conversion(in_rows=df_cvi, out_path=workspace, out_name=temp_table)
-
-    # Join Excel data table with the feature class
-    arcpy.JoinField_management(in_data=input_fc, in_field=unique_id, join_table=temp_table, join_field=unique_id)
-    arcpy.AddMessage("Attribute fields were successfully replaced in the CVI feature class!")
-    return
+def table_to_data_frame(in_table, input_fields=None, where_clause=None):
+    """Converts ESRI feature class or table into a pandas data frame with object ID index and selected input fields."""
+    # Source https://gist.github.com/d-wasserman/e9c98be1d0caebc2935afecf0ba239a0?permalink_comment_id=3000219#gistcomment-3000219
+    oid_field_name = arcpy.Describe(in_table).OIDFieldName
+    if input_fields:
+        final_fields = [oid_field_name] + input_fields
+    else:
+        final_fields = [field.name for field in arcpy.ListFields(in_table)]
+    data = [row for row in arcpy.da.SearchCursor(in_table, final_fields, where_clause=where_clause)]
+    fc_data_frame = pd.DataFrame(data, columns=final_fields)
+    fc_data_frame = fc_data_frame.set_index(oid_field_name, drop=True)
+    return fc_data_frame
 
 
 def delete_fields_from_fc(input_fc, fields_to_del):
@@ -411,7 +407,16 @@ def update_AGOL_feature_layers():
 
 
 # TESTING
-input_fc = r"\\snoco\gis\plng\carto\CVI\SnohomishCounty_CVI\GIS\Snohomish_Climate.gdb\SnohomishCounty_BG_Index_Final"
-spreadsheet = r"C:\Users\SCDJ2L\dev\CVI\TEST\SnohomishCountyCVI_Tool_20231213.xlsx"
+spreadsheet_filename = r"C:\Users\SCDJ2L\dev\CVI\TEST\SnohomishCountyCVI_Tool.xlsx"
+fc_name = r"\\snoco\gis\plng\carto\CVI\SnohomishCounty_CVI\GIS\Snohomish_Climate.gdb\SnohomishCounty_BG_Index_Final"
+csv_filename = r"C:\Users\SCDJ2L\dev\CVI\TEST\slr_parcels_20230920.csv"
+subindex_name = "Exposure Index"
+data_source = "BG_CIG_Exposure"
+indicator_name = "SeaLevelRise_2Ft_Parcels"
 unique_id = "Block Group ID"
-update_combined_CVI_fc(input_fc, spreadsheet, unique_id)
+
+# update_data_source_sheet(spreadsheet=spreadsheet_filename,
+#                          csv=csv_filename,
+#                          data_src=data_source,
+#                          indicator=indicator_name,
+#                          uid=unique_id)
