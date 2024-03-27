@@ -2,7 +2,7 @@
 # File Name:        CVITools.pyt
 # Version:          0.1
 # Author:           Jesse Langdon
-# Last Update:      1/3/2024
+# Last Update:      3/27/2024
 # Description:      ArcGIS Pro Python toolbox with tools that facilitate updating data in the CVI Tool.
 # Dependencies:     Python 3.x, arcpy, pandas, xlwings (note: the xlwings package may need to be installed manually)
 # ----------------------------------------------------------------------------------------------------------------------
@@ -13,7 +13,7 @@ import os
 import sys
 import json
 import pandas as pd
-# import xlwings as xw
+import xlwings as xw
 import shutil
 import datetime
 import logging
@@ -50,9 +50,9 @@ class UpdateCVI(object):
             datatype="DEFile",
             parameterType="Required",
             direction="Input")
-        param0.filter.list = ["xslx"]
+        # param0.filter.list = ["xslx"]
 
-        param1 = arcpy.Parmeter(
+        param1 = arcpy.Parameter(
             displayName="CVI feature class",
             name="input_fc",
             datatype="DEFeatureClass",
@@ -265,11 +265,12 @@ def update_cvi_fc(fc, spreadsheet, unique_id):
         data_src_dict = json_to_dict(os.path.join(sys.path[0], "csv_data_sources.json"))
         subindex_list = get_index(data_src_dict)
         for subindex in subindex_list:
-            subindex_table = f"memory\{subindex}_table"
+            subindex_name = subindex.replace(" ", "")
+            subindex_table = f"memory\\{subindex_name}_table"
             arcpy.ExcelToTable_conversion(Input_Excel_File=spreadsheet,
                                           Output_Table= subindex_table,
-                                          Sheet=subindex.replace("_", ""))
-            arcpy.AddJoin_management(in_features="bg_areas_lyr", in_field=unique_id, join_table=subindex_table, join_field=unique_id)
+                                          Sheet=subindex_name)
+            arcpy.AddJoin_management(in_layer_or_view="bg_areas_lyr", in_field=unique_id, join_table=subindex_table, join_field=unique_id)
 
         if not arcpy.TestSchemaLock(fc):
             arcpy.AddError(f"Unable to proceed - the {fc} is locked!")
@@ -409,14 +410,8 @@ def update_AGOL_feature_layers():
 # TESTING
 spreadsheet_filename = r"C:\Users\SCDJ2L\dev\CVI\TEST\SnohomishCountyCVI_Tool.xlsx"
 fc_name = r"\\snoco\gis\plng\carto\CVI\SnohomishCounty_CVI\GIS\Snohomish_Climate.gdb\SnohomishCounty_BG_Index_Final"
-csv_filename = r"C:\Users\SCDJ2L\dev\CVI\TEST\slr_parcels_20230920.csv"
+csv_filename = r"C:\Users\SCDJ2L\dev\CVI\TEST\slr_parcels_20240327.csv"
 subindex_name = "Exposure Index"
 data_source = "BG_CIG_Exposure"
 indicator_name = "SeaLevelRise_2Ft_Parcels"
 unique_id = "Block Group ID"
-
-# update_data_source_sheet(spreadsheet=spreadsheet_filename,
-#                          csv=csv_filename,
-#                          data_src=data_source,
-#                          indicator=indicator_name,
-#                          uid=unique_id)
