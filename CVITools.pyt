@@ -269,16 +269,24 @@ def update_cvi_fc(fc, spreadsheet, unique_id):
             subindex_table = f"memory\\{subindex_name}_table"
             arcpy.ExcelToTable_conversion(Input_Excel_File=spreadsheet,
                                           Output_Table= subindex_table,
-                                          Sheet=subindex_name)
-            arcpy.AddJoin_management(in_layer_or_view="bg_areas_lyr", in_field=unique_id, join_table=subindex_table, join_field=unique_id)
+                                          Sheet=subindex_name,
+                                          field_names_row=2)
+            # TESTING
+            fields = arcpy.ListFields(subindex_table)
+            arcpy.AddMessage("field list: ")
+            for field in fields:
+                arcpy.AddMessage(f"{field.name} | {field.type}")
+            # TESTING
+            # FIXME the problem is that the CVI_Tool.xlsx spreadsheet stores Block_Group_ID as a DOUBLE, and in BG_Areas feature class, that attribute is a string value
+            arcpy.AddJoin_management(in_layer_or_view="bg_areas_lyr", in_field="STCNTRBG", join_table=subindex_table, join_field=unique_id.replace(" ", "_"))
 
         if not arcpy.TestSchemaLock(fc):
             arcpy.AddError(f"Unable to proceed - the {fc} is locked!")
         else:
             arcpy.Delete_management(in_data="fc_lyr")
 
-        arcpy.FeatureClassToFeatureClass_conversion(in_features="bg_areas_lyr", out_path=workspace, out_name=os.path.basename(fc))
-        arcpy.AddMessage("The CV feature class has been updated sucessfully!")
+        arcpy.FeatureClassToFeatureClass_conversion(in_features="bg_areas_lyr", out_path=workspace, out_name=os.path.basename(f"{fc}_TEST"))
+        arcpy.AddMessage("The CV feature class has been updated successfully!")
         return
 
     except Exception as e:
@@ -408,10 +416,12 @@ def update_AGOL_feature_layers():
 
 
 # TESTING
-spreadsheet_filename = r"C:\Users\SCDJ2L\dev\CVI\TEST\SnohomishCountyCVI_Tool.xlsx"
+spreadsheet_filename = r"C:\Users\SCDJ2L\dev\CVI\TEST\SnohomishCountyCVI_Tool_20240328.xlsx"
 fc_name = r"\\snoco\gis\plng\carto\CVI\SnohomishCounty_CVI\GIS\Snohomish_Climate.gdb\SnohomishCounty_BG_Index_Final"
 csv_filename = r"C:\Users\SCDJ2L\dev\CVI\TEST\slr_parcels_20240327.csv"
 subindex_name = "Exposure Index"
 data_source = "BG_CIG_Exposure"
 indicator_name = "SeaLevelRise_2Ft_Parcels"
 unique_id = "Block Group ID"
+
+update_cvi_fc(fc_name, spreadsheet_filename, unique_id)
