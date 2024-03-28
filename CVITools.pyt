@@ -277,7 +277,8 @@ def update_cvi_fc(fc, spreadsheet, unique_id):
             for field in fields:
                 arcpy.AddMessage(f"{field.name} | {field.type}")
             # TESTING
-            # FIXME the problem is that the CVI_Tool.xlsx spreadsheet stores Block_Group_ID as a DOUBLE, and in BG_Areas feature class, that attribute is a string value
+            '''FIXME -- the problem is that ArcGIS is interpreting the Block_Group_ID attribute field in the CVI_Tool.xlsx sheets as DOUBLE 
+            despite it being stored as "String" in Excel. Meanwhile, in the BG_Areas feature class, that same attribute field uses a string value.'''
             arcpy.AddJoin_management(in_layer_or_view="bg_areas_lyr", in_field="STCNTRBG", join_table=subindex_table, join_field=unique_id.replace(" ", "_"))
 
         if not arcpy.TestSchemaLock(fc):
