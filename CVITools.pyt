@@ -157,7 +157,7 @@ class UpdateCVI(object):
         unique_id = "Block Group ID"
 
         # Update the data source sheet in the CSV spreadsheet for the selected indicator
-        update_data_source_sheet(
+        spreadsheet_updated = update_data_source_sheet(
             spreadsheet=spreadsheet_filename,
             csv=csv_filename,
             data_src=data_source,
@@ -168,7 +168,7 @@ class UpdateCVI(object):
          # Update the combined vulnerability feature class
         update_cvi_fc(
             fc=fc_name,
-            spreadsheet=spreadsheet_filename,
+            spreadsheet=spreadsheet_updated,
             unique_id=unique_id
         )
 
@@ -271,22 +271,33 @@ def update_cvi_fc(fc, spreadsheet, unique_id):
                                           Output_Table= subindex_table,
                                           Sheet=subindex_name,
                                           field_names_row=2)
-            # TESTING
-            fields = arcpy.ListFields(subindex_table)
-            arcpy.AddMessage("field list: ")
-            for field in fields:
-                arcpy.AddMessage(f"{field.name} | {field.type}")
-            # TESTING
-            '''FIXME -- the problem is that ArcGIS is interpreting the Block_Group_ID attribute field in the CVI_Tool.xlsx sheets as DOUBLE 
-            despite it being stored as "String" in Excel. Meanwhile, in the BG_Areas feature class, that same attribute field uses a string value.'''
-            arcpy.AddJoin_management(in_layer_or_view="bg_areas_lyr", in_field="STCNTRBG", join_table=subindex_table, join_field=unique_id.replace(" ", "_"))
+            new_txt_field = f"{unique_id}_text"
+            new_txt_field_formatted = add_and_populate_text_field(table_name=subindex_table, src_field_name=unique_id, new_field_name=new_txt_field)
+            arcpy.AddJoin_management(in_layer_or_view="bg_areas_lyr", in_field="STCNTRBG", join_table=subindex_table, join_field=new_txt_field_formatted)
+            arcpy.AddMessage(f"Joined attributes from {subindex_name} table to SnohomishCounty_BG_Areas...")
 
         if not arcpy.TestSchemaLock(fc):
             arcpy.AddError(f"Unable to proceed - the {fc} is locked!")
         else:
             arcpy.Delete_management(in_data="fc_lyr")
 
-        arcpy.FeatureClassToFeatureClass_conversion(in_features="bg_areas_lyr", out_path=workspace, out_name=os.path.basename(f"{fc}_TEST"))
+        arcpy.FeatureClassToFeatureClass_conversion(in_features="bg_areas_lyr", out_path=workspace, out_name=os.path.basename(fc))
+        arcpy.AddMessage(f"Removing unnecessary attribute fields from {os.path.basename(fc)}...")
+        arcpy.DeleteField_management(in_table=fc,
+                                     drop_field=["BG_Match",
+                                                "Tract_Match",
+                                                "Block_Group_ID",
+                                                "Block_Group_ID_text",
+                                                "OBJECTID_1",
+                                                "BG_Match_1",
+                                                "Tract_Match_1",
+                                                "Block_Group_ID_1",
+                                                "Block_Group_ID_text_1",
+                                                "OBJECTID_12",
+                                                "BG_Match_12",
+                                                "Tract_Match_12",
+                                                "Block_Group_ID_12",
+                                                "Block_Group_ID_text_12"])
         arcpy.AddMessage("The CV feature class has been updated successfully!")
         return
 
@@ -401,6 +412,31 @@ def delete_fields_from_fc(input_fc, fields_to_del):
     return
 
 
+def add_and_populate_text_field(table_name, src_field_name, new_field_name):
+    '''
+    Adds a new attribute field with a text data type and populates it with values from another field.
+
+    :param table_name: Path to the table to modify
+    :param src_field_name: Name of the original (source) attribute field with values to be copied
+    :param new_field_name: Name of new text attribute field to add and populate with copied values
+    :return:
+    '''
+
+    # Properly format the attribute field names
+    src_field_name_formatted = src_field_name.replace(" ", "_")
+    new_field_name_formatted = new_field_name.replace(" ", "_")
+
+    # Add a new text field
+    arcpy.AddField_management(in_table=table_name, field_name=new_field_name_formatted, field_type="TEXT")
+
+    # Calculate the new text field's values to match the source attribute field
+    expr = f"!{src_field_name_formatted}!"
+    arcpy.CalculateField_management(in_table=table_name, field=new_field_name_formatted,
+                                    expression=expr, expression_type="PYTHON3")
+
+    return new_field_name_formatted
+
+
 def update_AGOL_feature_layers():
 
     #### Pseudo-code
@@ -417,12 +453,13 @@ def update_AGOL_feature_layers():
 
 
 # TESTING
-spreadsheet_filename = r"C:\Users\SCDJ2L\dev\CVI\TEST\SnohomishCountyCVI_Tool_20240328.xlsx"
-fc_name = r"\\snoco\gis\plng\carto\CVI\SnohomishCounty_CVI\GIS\Snohomish_Climate.gdb\SnohomishCounty_BG_Index_Final"
-csv_filename = r"C:\Users\SCDJ2L\dev\CVI\TEST\slr_parcels_20240327.csv"
-subindex_name = "Exposure Index"
-data_source = "BG_CIG_Exposure"
-indicator_name = "SeaLevelRise_2Ft_Parcels"
-unique_id = "Block Group ID"
-
-update_cvi_fc(fc_name, spreadsheet_filename, unique_id)
+# spreadsheet_filename = r"C:\Users\SCDJ2L\dev\CVI\TEST\SnohomishCountyCVI_Tool_20240328.xlsx"
+# fc_name = r"\\snoco\gis\plng\carto\CVI\SnohomishCounty_CVI\GIS\Snohomish_Climate.gdb\SnohomishCounty_BG_Index_Final"
+# csv_filename = r"C:\Users\SCDJ2L\dev\CVI\TEST\slr_parcels_20240327.csv"
+# subindex_name = "Exposure Index"
+# data_source = "BG_CIG_Exposure"
+# indicator_name = "SeaLevelRise_2Ft_Parcels"
+# unique_id = "Block Group ID"
+#
+# arcpy.env.overwriteOutput = True
+# update_cvi_fc(fc_name, spreadsheet_filename, unique_id)
